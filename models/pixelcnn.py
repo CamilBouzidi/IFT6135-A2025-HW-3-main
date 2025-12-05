@@ -15,10 +15,16 @@ class MaskedConv2d(nn.Conv2d):
     def _build_mask(self):
         mask = torch.ones_like(self.weight)
         # Mask type A blocks the current pixel in addition to future pixels; type B allows the current pixel.
-        ...  # TODO: zero out rows strictly below the current pixel
-        ...  # TODO: zero out columns to the right of the current pixel (respecting mask type)
+        # first, compute the center position
+        kH, kW = self.kernel_size
+        center_h = kH // 2
+        center_w = kW // 2
+        # format is [in_channels, out_channels, height, width]
+        mask[:,:, center_h+1:,:] = 0  #zero out rows strictly below the current pixel
+        mask[:,:, center_h, center_w+1:] = 0  #zero out columns to the right of the current pixel (respecting mask type)
         if self.mask_type == "A":
-            ...  # TODO: zero the current pixel for type A masks
+            mask[:,:, center_h, center_w] = 0  # zero the current pixel for type A masks
+        self.mask.copy_(mask)
         return mask
 
     def forward(self, x):
@@ -95,17 +101,17 @@ class PixelCNN(nn.Module):
 
     def forward(self, batch):
         x = batch["images"]
-        logits = ...  # TODO: compute logits over discrete bins
+        logits = self.net(x) #compute logits over discrete bins
         b, c_bins, h, w = logits.shape
         logits = logits.view(b, self.image_channels, self.bins, h, w)
         targets = batch.get("targets")
         if targets is None:
-            targets = ...  # TODO: quantise the input images to bin indices
+            targets = (x * 255).long() #quantise the input images to bin indices, long. Input is in [0,1] so we have to map to [0,255]
         else:
             targets = targets.long()
         logits_flat = logits.permute(0, 3, 4, 1, 2).reshape(-1, self.bins)
         targets_flat = targets.permute(0, 2, 3, 1).reshape(-1)
-        loss = ...  # TODO: compute the cross-entropy loss
+        loss = F.cross_entropy(logits_flat, targets_flat)  #compute the cross-entropy loss
         logits = logits.view(b, self.image_channels * self.bins, h, w)
         return {
             "loss": loss,

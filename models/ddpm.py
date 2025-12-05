@@ -128,30 +128,37 @@ class DenoiseUNet(nn.Module):
         return network
 
     def q_sample(self, x_start, t, noise):
-        shape = (t.size(0),) + (1,) * (x_start.dim() - 1)
-        mean = ...  # TODO: compute the mean of q(x_t | x_0), hint: use self.sqrt_alphas_cumprod
-        std = ...  # TODO: compute the standard deviation term, hint: use self.sqrt_one_minus_alphas_cumprod
-        return ...  # TODO: return the noisy sample x_t
+        shape = (t.size(0),) + (1,) * (x_start.dim() - 1) # will need to use shape for sqrt_alphas_cumprod and sqrt_one_minus_alphas_cumprod
+        # mean = sqrt(alpha_bar_t) * x_0
+        mean = self.sqrt_alphas_cumprod[t].view(shape) * x_start #compute the mean of q(x_t | x_0), hint: use self.sqrt_alphas_cumprod
+
+        # std = sqrt(1 - alpha_bar_t)
+        std = self.sqrt_one_minus_alphas_cumprod[t].view(shape)  #compute the standard deviation term, hint: use self.sqrt_one_minus_alphas_cumprod
+        return mean + std * noise #return the noisy sample x_t
 
     def forward(self, batch):
         x0 = batch["images"]
         t = batch.get("timesteps")
         if t is None:
-            t = ...  # TODO: draw random timesteps for the batch
+            #draw random timesteps for the batch. From 0 to self.timesteps-1, but for each img in batch
+            t = torch.randint(0, self.timesteps, (x0.size(0),), device=x0.device).long() # use long jsut in case
         noise = batch.get("noise")
         if noise is None:
-            noise = ...  # TODO: draw Gaussian noise for the forward process
-        xt = ...  # TODO: sample from q(x_t | x_0)
+            # Draw Gaussian noise for forward process
+            noise = torch.randn_like(x0)
+
+        xt = self.q_sample(x0, t, noise) #sample from q(x_t | x_0)
         time_emb = self.time_embedding(t)
-        h0 = ...  # TODO: apply the initial convolution
-        skip0, h1 = ...  # TODO: apply the first down block
-        skip1, h2 = ...  # TODO: apply the second down block
-        skip2, h3 = ...  # TODO: apply the last down block
-        h_mid = ...  # TODO: apply the middle residual block
-        h = ...  # TODO: apply the first up block
-        h = ...  # TODO: apply the second up block
-        h = ...  # TODO: apply the final up block
-        pred_noise = ...  # TODO: map to the predicted noise
+        h0 = self.model["init"](xt) #initial conv
+        skip0, h1 = self.model["down0"](h0, time_emb) #first down block
+        skip1, h2 = self.model["down1"](h1, time_emb)  #apply the second down block
+        skip2, h3 = self.model["down2"](h2, time_emb) #apply the last down block
+        h_mid = self.model["mid"](h3, time_emb) #apply the middle residual block
+        # remember the u shape
+        h = self.model["up2"](h_mid, skip2, time_emb)  #apply the first up block
+        h = self.model["up1"](h, skip1, time_emb) #apply the second up block
+        h = self.model["up0"](h, skip0, time_emb) #apply the final up block
+        pred_noise = self.model["out"](h)  #map to the predicted noise
         loss = F.mse_loss(pred_noise, noise, reduction='mean')
         return {
             "loss": loss,

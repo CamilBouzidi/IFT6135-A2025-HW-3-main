@@ -70,15 +70,24 @@ class DCGAN(nn.Module):
         real = batch["images"]
         noise = batch.get("noise")
         if noise is None:
-            noise = ...  # TODO: draw latent noise for the generator
-        fake_images = ...  # TODO: generate fake images from the latent noise
-        logits_real = ...  # TODO: score real images with the discriminator
-        logits_fake_detached = ...  # TODO: score fake images without backpropagating into G
+            # noise size: (batch_size, latent_dim, 1, 1)
+            noise = torch.randn(real.size(0), self.latent_dim, 1, 1, device=real.device)
+            assert noise.shape == (real.size(0), self.latent_dim, 1, 1)
+        fake_images = self.sample(noise)
+        assert fake_images.shape == real.shape
+        logits_real = self.discriminator(real)
+        assert logits_real.shape == (real.size(0), 1, 1, 1)
+        logits_fake_detached = self.discriminator(fake_images.detach())  # only affects discriminator
+        assert logits_fake_detached.shape == (real.size(0), 1, 1, 1)
         ones = torch.ones_like(logits_real)  # targets for real samples
         zeros = torch.zeros_like(logits_fake_detached)  # targets for fake samples
-        discriminator_loss = ...  # TODO: compute the discriminator loss
-        logits_fake = ...  # TODO: score fake images for the generator update
-        generator_loss = ...  # TODO: compute the generator loss
+        # have to minimize -(log(D(x)) + log(1 - D(G(z))))
+        # how to use BCEWithLogitsLoss: represent log(D(x)) with logits_real and target ones?
+        # how to use BCEWithLogitsLoss: represent log(1 - D(G(z))) with logits_fake_detached and target zeros?
+        discriminator_loss = self.criterion(logits_real, ones) + self.criterion(logits_fake_detached, zeros)
+        logits_fake = self.discriminator(fake_images)  # affects generator
+        # have to maximize log(D(G(z))), so minimize -log(D(G(z))), so minimize BCEWithLogitsLoss with fake, target ones
+        generator_loss = self.criterion(logits_fake, ones)
         loss = discriminator_loss + generator_loss
         return {
             "loss": loss,
