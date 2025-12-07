@@ -122,7 +122,7 @@ def p_sample_loop(model, shape, timesteps, T, coefficients, noise=None):
             t = torch.full((b,), i, device=model.device, dtype=torch.long)
             
             if noise is None:
-                img = p_sample(model, img, t, i, coefficients, Noise=None)
+                img = p_sample(model, img, t, i, coefficients)
             else:
                 # already have pre-sampled noise for each step
                 img = p_sample(model, img, t, i, coefficients, noise=noise[i])
